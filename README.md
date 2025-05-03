@@ -21,3 +21,6 @@ If you wish to use this dataset for academic or commercial purposes, please cont
 Xuan Wen
 Vanderbilt University
 xuan.wen@vanderbilt.edu
+
+
+Data for data analysis is avaliable at https://osf.io/2vk97/, with DOI 10.17605/OSF.IO/2VK97. 
