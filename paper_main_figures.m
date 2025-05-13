@@ -13,9 +13,12 @@
 
 
 %% Data Loading
-% touch_table = readtable();
-% block_table = readtable();
-% WM_WWW_Interaction = readtable();
+% load('block_table.mat');
+% load('touch_table.mat');
+% load('WM_WWW_Interaction.mat');
+% touch_table = touch_table.touch_table;
+% block_table = block_table.block_table;
+% WM_WWW_Interaction = WM_WWW_Interaction.WM_WWW_Interaction;
 
 
 %% Plotting
@@ -54,10 +57,10 @@
 % plotTransitionProbabilitiesWithAccuracyFilter(touch_table, 0)
 
 % Figure 4DEF
-% plotTransitionProbabilitiesWithAccuracyFilter(touch_table, 1)
+% plotTransitionProbabilitiesWithAccuracyFilter(touch_table, 2)
 
 % Figure 4JHI
-% plotTransitionProbabilitiesWithAccuracyFilter(touch_table, 2)
+% plotTransitionProbabilitiesWithAccuracyFilter(touch_table, 1)
 
 % Figure 4J
 % plotTransitionProbabilitiesFirstTrial(touch_table)
@@ -2856,12 +2859,12 @@ function plotTransitionProbabilitiesWithAccuracyFilter(touch_table, figure_requi
 					block_level_error_rate = total_number_errors/15;
             		 
 					if figure_require == 1
-            			if block_level_error_rate > 6.6% or > 6.6
+            			if block_level_error_rate > 6.6% or <= 6.6
 							includeBlock(i) = 1;
                 			includeBlock(i + 1) = 1;  % Exclude next block if it exists
 						end
 					elseif figure_require == 2
-						if block_level_error_rate < 5.3% or > 6.6
+						if block_level_error_rate <= 6.6
 							includeBlock(i) = 1;
                 			includeBlock(i + 1) = 1;  % Exclude next block if it exists
 						end
@@ -3035,11 +3038,22 @@ function createFigure(meanData, seData, canvas_size, colors, markers, xtickLabel
         end
     end
     
-    % Perform statistical tests
-    [~, pBC] = performWelchTTest(allDataB, allDataC);
-    [~, pBD] = performWelchTTest(allDataB, allDataD);
-	[~, pCD] = performWelchTTest(allDataC, allDataD);
-    
+  % Perform statistical tests to get uncorrected p-values
+	[~, p_uncorrected_BC] = performWelchTTest(allDataB, allDataC,1); % 3 for bonferroni correction, 1 for FDR
+	[~, p_uncorrected_BD] = performWelchTTest(allDataB, allDataD,1);
+	[~, p_uncorrected_CD] = performWelchTTest(allDataC, allDataD,1);
+	
+	% Collect all uncorrected p-values into a vector
+	all_p_values_uncorrected = [p_uncorrected_BC, p_uncorrected_BD, p_uncorrected_CD];
+	
+	% Apply the Benjamini-Hochberg FDR procedure to the vector of p-values
+	p_values_adjusted_BH = all_p_values_uncorrected; 
+	[p_values_adjusted_BH, h] = fdr_correction(p_values_adjusted_BH, 0.05);
+	% p_values_adjusted_BH = benjaminiHochbergFDR(all_p_values_uncorrected); % comment this out for bonferroni
+    pBC = p_values_adjusted_BH(1);
+	pBD = p_values_adjusted_BH(2);
+	pCD = p_values_adjusted_BH(3);
+
     % Add significance bars
     maxY = max(meanData + seData) + 0.1;
 	minY = min(meanData + seData);
@@ -3090,13 +3104,105 @@ function createFigure(meanData, seData, canvas_size, colors, markers, xtickLabel
     set(fig, 'Position', new_fig_size);
 	set(gcf,'renderer','Painters')
     hold off;
-
+	saveas(fig, [titleText, '.svg']);
 end
 
 
 % Add these helper functions at the end of the file
-function [h, p] = performWelchTTest(data1, data2)
+function [h, p] = performWelchTTest(data1, data2, num_compare)
     [h, p] = ttest2(data1, data2, 'Vartype', 'unequal');
+	p = p * num_compare;
+end
+
+function [p_corrected, h] = fdr_correction(p_vals, alpha)
+%FDR_CORRECTION Applies Benjamini-Hochberg FDR correction to p-values.
+%
+%   [p_corrected, h] = fdr_correction(p_vals, alpha)
+%
+%   Inputs:
+%       p_vals - vector of p-values (e.g., [0.01, 0.04, 0.03])
+%       alpha  - significance level (e.g., 0.05)
+%
+%   Outputs:
+%       p_corrected - FDR-adjusted p-values
+%       h           - logical vector indicating whether null hypothesis is rejected
+
+    if nargin < 2
+        alpha = 0.05;
+    end
+
+    p_vals = p_vals(:); % ensure column vector
+    m = length(p_vals);
+    
+    [sorted_p, sort_idx] = sort(p_vals);
+    unsort_idx(sort_idx) = 1:m;  % to unsort later
+
+    % Benjamini-Hochberg critical values
+    bh_crit = (1:m)' * alpha / m;
+
+    % Find which p-values are below their BH threshold
+    below = sorted_p <= bh_crit;
+    
+    if any(below)
+        max_k = find(below, 1, 'last');
+        h_sorted = false(m,1);
+        h_sorted(1:max_k) = true;
+    else
+        h_sorted = false(m,1);
+    end
+
+    % Compute adjusted p-values (Benjamini-Hochberg step-up procedure)
+    p_adj = sorted_p .* m ./ (1:m)';
+    p_adj = min(1, p_adj); % cap at 1
+    % Ensure monotonicity
+    for i = m-1:-1:1
+        p_adj(i) = min(p_adj(i), p_adj(i+1));
+    end
+
+    % Return in original order
+    p_corrected = p_adj(unsort_idx)';
+    h = h_sorted(unsort_idx)';
+end
+
+function p_adjusted = benjaminiHochbergFDR(p_values)
+    % benjaminiHochbergFDR applies the Benjamini-Hochberg FDR correction to a set of p-values.
+    %   p_adjusted = benjaminiHochbergFDR(p_values) takes a vector of
+    %   uncorrected p-values and returns a vector of adjusted p-values using
+    %   the Benjamini-Hochberg method to control the False Discovery Rate (FDR).
+    %
+    %   Input:
+    %   p_values - A vector of uncorrected p-values from multiple comparisons.
+    %
+    %   Output:
+    %   p_adjusted - A vector of p-values adjusted using the Benjamini-Hochberg
+    %                procedure, corresponding to the original input order.
+
+    num_comparisons = length(p_values);
+
+    % Handle empty input
+    if num_comparisons == 0
+        p_adjusted = [];
+        return;
+    end
+
+    % Sort p-values in ascending order and keep track of original indices
+    [sorted_p_values, original_indices] = sort(p_values);
+
+    % Calculate the initial BH adjusted p-values
+    p_adjusted_sorted_initial = sorted_p_values .* (num_comparisons ./ (1:num_comparisons)');
+
+    % Ensure monotonicity and cap at 1 (working backwards)
+    p_adjusted_sorted = zeros(size(p_adjusted_sorted_initial));
+    p_adjusted_sorted(num_comparisons) = min(p_adjusted_sorted_initial(num_comparisons), 1);
+
+    for i = num_comparisons - 1:-1:1
+        p_adjusted_sorted(i) = min(max(p_adjusted_sorted_initial(i), p_adjusted_sorted(i)), 1);
+    end
+
+    % Reorder adjusted p-values back to the original input order
+    p_adjusted(original_indices) = p_adjusted_sorted(:,1);
+    p_adjusted = p_adjusted'; % Ensure output is a row vector if input was
+
 end
 
 function addSignificanceBars(ax, x1, x2, y, p)

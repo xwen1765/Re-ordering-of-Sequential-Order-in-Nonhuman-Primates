@@ -13,10 +13,12 @@
 
 
 %% Data Loading
-% touch_table = readtable();
-% block_table = readtable();
-% WM_WWW_Interaction = readtable();
-
+% load('block_table.mat');
+% load('touch_table.mat');
+% load('WM_WWW_Interaction.mat');
+% touch_table = touch_table.touch_table;
+% block_table = block_table.block_table;
+% WM_WWW_Interaction = WM_WWW_Interaction.WM_WWW_Interaction;
 
 %% SUP
 % Figure S1A
